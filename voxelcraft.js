@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 
 const canvas = document.getElementById("game");
 const statusLabel = document.getElementById("status");
+const touchControls = document.getElementById("touch-controls");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -14,12 +14,6 @@ scene.background = new THREE.Color(0x7bb4f4);
 scene.fog = new THREE.Fog(0x7bb4f4, 20, 90);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.position.set(0, 8, 12);
-
-const controls = new PointerLockControls(camera, document.body);
-scene.add(controls.getObject());
-
-document.body.addEventListener("click", () => controls.lock());
 
 const ambient = new THREE.HemisphereLight(0xddeeff, 0x445533, 0.8);
 scene.add(ambient);
@@ -34,9 +28,20 @@ sun.shadow.camera.top = 45;
 sun.shadow.camera.bottom = -45;
 scene.add(sun);
 
+const player = new THREE.Object3D();
+player.position.set(0, 12, 0);
+scene.add(player);
+
 const move = { forward: false, backward: false, left: false, right: false };
 const velocity = new THREE.Vector3();
 let canJump = false;
+
+let yaw = 0;
+let pitch = -0.35;
+let looking = false;
+let isMining = false;
+let mineProgress = 0;
+let miningBlock = null;
 
 const blockGeo = new THREE.BoxGeometry(1, 1, 1);
 const materials = {
@@ -134,10 +139,13 @@ generateWorld();
 controls.getObject().position.set(0, 12, 0);
 
 const raycaster = new THREE.Raycaster();
-const clickDir = new THREE.Vector2(0, 0);
+const center = new THREE.Vector2(0, 0);
+const footRay = new THREE.Raycaster();
+const down = new THREE.Vector3(0, -1, 0);
+const clock = new THREE.Clock();
 
 function intersectBlock() {
-  raycaster.setFromCamera(clickDir, camera);
+  raycaster.setFromCamera(center, camera);
   return raycaster.intersectObjects(blocks, false)[0];
 }
 
@@ -183,6 +191,18 @@ document.addEventListener("mousedown", (event) => {
   if (event.button === 0) {
     startMining();
   }
+  const p = hit.object.position.clone().add(hit.face.normal);
+  addBlock(Math.round(p.x), Math.round(p.y), Math.round(p.z), type);
+  inventory[type] -= 1;
+}
+
+function startMining() {
+  const hit = intersectBlock();
+  if (!hit || hit.object.position.y <= 0) return;
+  isMining = true;
+  mineProgress = 0;
+  miningBlock = hit.object;
+}
 
   if (event.button === 2) {
     const hit = intersectBlock();
@@ -205,7 +225,7 @@ document.addEventListener("mouseup", (event) => {
   if (event.button === 0) stopMining();
 });
 
-document.addEventListener("contextmenu", (e) => e.preventDefault());
+document.addEventListener("keyup", (event) => onKeyChange(event, false));
 
 document.addEventListener("keydown", (event) => {
   switch (event.code) {
@@ -238,26 +258,49 @@ document.addEventListener("keydown", (event) => {
   updateStatus();
 });
 
-document.addEventListener("keyup", (event) => {
-  switch (event.code) {
-    case "KeyW":
-      move.forward = false;
-      break;
-    case "KeyS":
-      move.backward = false;
-      break;
-    case "KeyA":
-      move.left = false;
-      break;
-    case "KeyD":
-      move.right = false;
-      break;
+document.addEventListener("mouseup", (event) => {
+  if (event.button === 0) {
+    looking = false;
+    stopMining();
   }
 });
 
-const footRay = new THREE.Raycaster();
-const down = new THREE.Vector3(0, -1, 0);
-const clock = new THREE.Clock();
+document.addEventListener("mousemove", (event) => {
+  if (!looking) return;
+  yaw -= event.movementX * 0.003;
+  pitch -= event.movementY * 0.002;
+  pitch = Math.max(-1.05, Math.min(0.45, pitch));
+});
+
+canvas.addEventListener("touchstart", () => {}, { passive: true });
+
+touchControls.addEventListener("touchstart", (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) return;
+  event.preventDefault();
+  const dir = btn.dataset.move;
+  const action = btn.dataset.action;
+
+  if (dir) move[dir] = true;
+  if (action === "jump" && canJump) {
+    velocity.y = 7.5;
+    canJump = false;
+  }
+  if (action === "mine") startMining();
+  if (action === "place") placeSelectedBlock();
+  if (action === "next") selectedSlot = (selectedSlot + 1) % hotbar.length;
+  updateStatus();
+});
+
+touchControls.addEventListener("touchend", (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) return;
+  event.preventDefault();
+  const dir = btn.dataset.move;
+  const action = btn.dataset.action;
+  if (dir) move[dir] = false;
+  if (action === "mine") stopMining();
+});
 
 function updateMovement(dt) {
   const speed = 10;
@@ -265,26 +308,30 @@ function updateMovement(dt) {
   velocity.z -= velocity.z * 10 * dt;
   velocity.y -= 20 * dt;
 
-  const direction = new THREE.Vector3();
-  if (move.forward) direction.z -= 1;
-  if (move.backward) direction.z += 1;
-  if (move.left) direction.x -= 1;
-  if (move.right) direction.x += 1;
-  direction.normalize();
+  const localDir = new THREE.Vector3();
+  if (move.forward) localDir.z -= 1;
+  if (move.backward) localDir.z += 1;
+  if (move.left) localDir.x -= 1;
+  if (move.right) localDir.x += 1;
+  localDir.normalize();
 
-  if (move.forward || move.backward) velocity.z += direction.z * speed * dt * 10;
-  if (move.left || move.right) velocity.x += direction.x * speed * dt * 10;
+  const sin = Math.sin(yaw);
+  const cos = Math.cos(yaw);
+  const worldX = localDir.x * cos - localDir.z * sin;
+  const worldZ = localDir.x * sin + localDir.z * cos;
 
-  controls.moveRight(velocity.x * dt);
-  controls.moveForward(velocity.z * dt);
+  if (localDir.lengthSq() > 0) {
+    velocity.x += worldX * speed * dt * 10;
+    velocity.z += worldZ * speed * dt * 10;
+  }
 
-  const player = controls.getObject();
+  player.position.x += velocity.x * dt;
+  player.position.z += velocity.z * dt;
   player.position.y += velocity.y * dt;
 
   footRay.set(player.position, down);
   footRay.far = 2.2;
   const hits = footRay.intersectObjects(blocks, false);
-
   if (hits.length > 0) {
     const targetY = hits[0].object.position.y + 1.9;
     if (player.position.y < targetY + 0.05) {

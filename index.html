@@ -8,22 +8,42 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.162.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.162.0/examples/jsm/"
+          "three": "https://unpkg.com/three@0.162.0/build/three.module.js"
         }
       }
     </script>
   </head>
   <body>
     <div id="hud">
-      <h1>VoxelCraft (Minecraft-inspired demo)</h1>
+      <h1>VoxelCraft (3rd-person demo)</h1>
       <p>
         Click to lock cursor • <strong>WASD</strong> move (W forward, S backward) • <strong>Space</strong>
         jump • <strong>Mouse</strong> look • Hold <strong>Left click</strong> to mine •
         <strong>Right click</strong> place selected inventory block • <strong>1-5</strong> select block type
       </p>
+      <p>Touch devices: use on-screen controls for movement, mining, and placing.</p>
       <p id="status">Loading world...</p>
     </div>
+
+    <div id="touch-controls" aria-label="Touch controls">
+      <div class="touch-row movement">
+        <button data-move="forward">W</button>
+      </div>
+      <div class="touch-row movement">
+        <button data-move="left">A</button>
+        <button data-action="jump">Jump</button>
+        <button data-move="right">D</button>
+      </div>
+      <div class="touch-row movement">
+        <button data-move="backward">S</button>
+      </div>
+      <div class="touch-row actions">
+        <button data-action="mine">Mine</button>
+        <button data-action="place">Place</button>
+        <button data-action="next">Next</button>
+      </div>
+    </div>
+
     <div id="crosshair" aria-hidden="true">+</div>
     <canvas id="game"></canvas>
 
