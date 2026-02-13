@@ -18,6 +18,7 @@ camera.position.set(0, 8, 12);
 
 const controls = new PointerLockControls(camera, document.body);
 scene.add(controls.getObject());
+
 document.body.addEventListener("click", () => controls.lock());
 
 const ambient = new THREE.HemisphereLight(0xddeeff, 0x445533, 0.8);
@@ -45,23 +46,8 @@ const materials = {
   wood: new THREE.MeshLambertMaterial({ color: 0x966535 })
 };
 
-const mineSeconds = {
-  grass: 0.45,
-  dirt: 0.35,
-  wood: 0.9,
-  stone: 1.6
-};
-
 const world = new Map();
 const blocks = [];
-
-const inventory = { grass: 0, dirt: 0, wood: 0, stone: 0 };
-const hotbar = ["grass", "dirt", "wood", "stone"];
-let selectedSlot = 0;
-
-let miningActive = false;
-let miningBlock = null;
-let miningElapsed = 0;
 
 function key(x, y, z) {
   return `${x},${y},${z}`;
@@ -100,10 +86,7 @@ function generateWorld(size = 24) {
       const h = heightAt(x, z);
       for (let y = 0; y <= h; y += 1) {
         const depth = h - y;
-        let type = "stone";
-        if (depth === 0) type = "grass";
-        else if (depth === 1) type = "stone";
-        else if (depth > 1 && depth < 4 && Math.random() < 0.22) type = "dirt";
+        const type = depth === 0 ? "grass" : depth < 3 ? "dirt" : "stone";
         addBlock(x, y, z, type);
       }
 
@@ -122,119 +105,34 @@ function generateWorld(size = 24) {
   }
 }
 
+generateWorld();
+controls.getObject().position.set(0, 12, 0);
+statusLabel.textContent = `Blocks: ${blocks.length} | Terrain generated`;
+
 const raycaster = new THREE.Raycaster();
 const clickDir = new THREE.Vector2(0, 0);
 
 function intersectBlock() {
   raycaster.setFromCamera(clickDir, camera);
-  return raycaster.intersectObjects(blocks, false)[0] ?? null;
+  return raycaster.intersectObjects(blocks, false)[0];
 }
-
-function inventoryText() {
-  return hotbar
-    .map((type, i) => {
-      const marker = i === selectedSlot ? `[${i + 1}:${type} x${inventory[type]}]` : `${i + 1}:${type} x${inventory[type]}`;
-      return marker;
-    })
-    .join("  ");
-}
-
-function updateStatus(extra = "") {
-  const selected = hotbar[selectedSlot];
-  statusLabel.textContent = `Blocks: ${blocks.length} | Selected: ${selected} | Inventory: ${inventoryText()}${extra ? ` | ${extra}` : ""}`;
-}
-
-function addInventory(type, amount = 1) {
-  if (!(type in inventory)) inventory[type] = 0;
-  inventory[type] += amount;
-  updateStatus();
-}
-
-function placeSelectedBlock(hit) {
-  const selected = hotbar[selectedSlot];
-  if ((inventory[selected] ?? 0) <= 0 || !hit?.face) {
-    updateStatus("No blocks to place");
-    return;
-  }
-
-  const normal = hit.face.normal.clone();
-  const p = hit.object.position.clone().add(normal);
-  const x = Math.round(p.x);
-  const y = Math.round(p.y);
-  const z = Math.round(p.z);
-
-  if (world.has(key(x, y, z))) return;
-
-  addBlock(x, y, z, selected);
-  inventory[selected] -= 1;
-  updateStatus();
-}
-
-function finishMining(mesh) {
-  if (!mesh || mesh.position.y <= 0) return;
-  const type = mesh.userData.type ?? "dirt";
-  removeBlock(mesh);
-  addInventory(type, 1);
-}
-
-function mineTick(dt) {
-  if (!miningActive || !controls.isLocked) {
-    miningElapsed = 0;
-    miningBlock = null;
-    return;
-  }
-
-  const hit = intersectBlock();
-  if (!hit || !hit.object) {
-    miningElapsed = 0;
-    miningBlock = null;
-    updateStatus("Mining: no target");
-    return;
-  }
-
-  if (miningBlock !== hit.object) {
-    miningBlock = hit.object;
-    miningElapsed = 0;
-  }
-
-  const type = miningBlock.userData.type ?? "dirt";
-  const needed = mineSeconds[type] ?? 0.5;
-  miningElapsed += dt;
-
-  const pct = Math.min(100, Math.floor((miningElapsed / needed) * 100));
-  updateStatus(`Mining ${type}: ${pct}%`);
-
-  if (miningElapsed >= needed) {
-    finishMining(miningBlock);
-    miningElapsed = 0;
-    miningBlock = null;
-  }
-}
-
-generateWorld();
-controls.getObject().position.set(0, 12, 0);
-updateStatus("Terrain generated");
 
 document.addEventListener("mousedown", (event) => {
   if (!controls.isLocked) return;
+  const hit = intersectBlock();
+  if (!hit) return;
+
   if (event.button === 0) {
-    miningActive = true;
-    return;
+    if (hit.object.position.y > 0) removeBlock(hit.object);
   }
 
   if (event.button === 2) {
-    const hit = intersectBlock();
-    if (hit) placeSelectedBlock(hit);
+    const normal = hit.face.normal.clone();
+    const p = hit.object.position.clone().add(normal);
+    addBlock(Math.round(p.x), Math.round(p.y), Math.round(p.z), "dirt");
   }
-});
 
-document.addEventListener("mouseup", (event) => {
-  if (event.button === 0) {
-    miningActive = false;
-    miningElapsed = 0;
-    miningBlock = null;
-    updateStatus();
-  }
+  statusLabel.textContent = `Blocks: ${blocks.length} | ${controls.isLocked ? "Playing" : "Click to play"}`;
 });
 
 document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -242,10 +140,10 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 document.addEventListener("keydown", (event) => {
   switch (event.code) {
     case "KeyW":
-      move.backward = true;
+      move.forward = true;
       break;
     case "KeyS":
-      move.forward = true;
+      move.backward = true;
       break;
     case "KeyA":
       move.left = true;
@@ -259,24 +157,16 @@ document.addEventListener("keydown", (event) => {
         canJump = false;
       }
       break;
-    case "Digit1":
-    case "Digit2":
-    case "Digit3":
-    case "Digit4": {
-      selectedSlot = Number(event.code.replace("Digit", "")) - 1;
-      updateStatus();
-      break;
-    }
   }
 });
 
 document.addEventListener("keyup", (event) => {
   switch (event.code) {
     case "KeyW":
-      move.backward = false;
+      move.forward = false;
       break;
     case "KeyS":
-      move.forward = false;
+      move.backward = false;
       break;
     case "KeyA":
       move.left = false;
@@ -335,10 +225,7 @@ function updateMovement(dt) {
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (controls.isLocked) {
-    updateMovement(dt);
-    mineTick(dt);
-  }
+  if (controls.isLocked) updateMovement(dt);
   renderer.render(scene, camera);
 }
 animate();
