@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 
 const canvas = document.getElementById("game");
 const statusLabel = document.getElementById("status");
+const touchControls = document.getElementById("touch-controls");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -14,12 +14,6 @@ scene.background = new THREE.Color(0x7bb4f4);
 scene.fog = new THREE.Fog(0x7bb4f4, 20, 90);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.position.set(0, 8, 12);
-
-const controls = new PointerLockControls(camera, document.body);
-scene.add(controls.getObject());
-
-document.body.addEventListener("click", () => controls.lock());
 
 const ambient = new THREE.HemisphereLight(0xddeeff, 0x445533, 0.8);
 scene.add(ambient);
@@ -34,17 +28,35 @@ sun.shadow.camera.top = 45;
 sun.shadow.camera.bottom = -45;
 scene.add(sun);
 
+const player = new THREE.Object3D();
+player.position.set(0, 12, 0);
+scene.add(player);
+
 const move = { forward: false, backward: false, left: false, right: false };
 const velocity = new THREE.Vector3();
 let canJump = false;
+
+let yaw = 0;
+let pitch = -0.35;
+let looking = false;
+let isMining = false;
+let mineProgress = 0;
+let miningBlock = null;
 
 const blockGeo = new THREE.BoxGeometry(1, 1, 1);
 const materials = {
   grass: new THREE.MeshLambertMaterial({ color: 0x4aa645 }),
   dirt: new THREE.MeshLambertMaterial({ color: 0x8f5f33 }),
   stone: new THREE.MeshLambertMaterial({ color: 0x8a8f98 }),
-  wood: new THREE.MeshLambertMaterial({ color: 0x966535 })
+  wood: new THREE.MeshLambertMaterial({ color: 0x966535 }),
+  leaves: new THREE.MeshLambertMaterial({ color: 0x2f7f32 })
 };
+
+const mineDurations = { dirt: 0.25, grass: 0.35, leaves: 0.2, wood: 0.7, stone: 1.2 };
+
+const inventory = { dirt: 0, grass: 0, stone: 0, wood: 0, leaves: 0 };
+const hotbar = ["dirt", "grass", "stone", "wood", "leaves"];
+let selectedSlot = 0;
 
 const world = new Map();
 const blocks = [];
@@ -80,15 +92,18 @@ function heightAt(x, z) {
   return Math.floor(5 + n1 + n2 + n3);
 }
 
+function terrainTypeForDepth(depth) {
+  if (depth === 0) return "grass";
+  if (depth === 1) return "stone";
+  if (depth < 4) return "dirt";
+  return "stone";
+}
+
 function generateWorld(size = 24) {
   for (let x = -size; x <= size; x += 1) {
     for (let z = -size; z <= size; z += 1) {
       const h = heightAt(x, z);
-      for (let y = 0; y <= h; y += 1) {
-        const depth = h - y;
-        const type = depth === 0 ? "grass" : depth < 3 ? "dirt" : "stone";
-        addBlock(x, y, z, type);
-      }
+      for (let y = 0; y <= h; y += 1) addBlock(x, y, z, terrainTypeForDepth(h - y));
 
       if (Math.random() < 0.015 && h > 4) {
         const treeHeight = 3 + Math.floor(Math.random() * 2);
@@ -96,7 +111,7 @@ function generateWorld(size = 24) {
         for (let lx = -2; lx <= 2; lx += 1) {
           for (let lz = -2; lz <= 2; lz += 1) {
             for (let ly = treeHeight - 1; ly <= treeHeight + 1; ly += 1) {
-              if (Math.abs(lx) + Math.abs(lz) < 4) addBlock(x + lx, h + ly, z + lz, "grass");
+              if (Math.abs(lx) + Math.abs(lz) < 4) addBlock(x + lx, h + ly, z + lz, "leaves");
             }
           }
         }
@@ -106,80 +121,139 @@ function generateWorld(size = 24) {
 }
 
 generateWorld();
-controls.getObject().position.set(0, 12, 0);
-statusLabel.textContent = `Blocks: ${blocks.length} | Terrain generated`;
 
 const raycaster = new THREE.Raycaster();
-const clickDir = new THREE.Vector2(0, 0);
-
-function intersectBlock() {
-  raycaster.setFromCamera(clickDir, camera);
-  return raycaster.intersectObjects(blocks, false)[0];
-}
-
-document.addEventListener("mousedown", (event) => {
-  if (!controls.isLocked) return;
-  const hit = intersectBlock();
-  if (!hit) return;
-
-  if (event.button === 0) {
-    if (hit.object.position.y > 0) removeBlock(hit.object);
-  }
-
-  if (event.button === 2) {
-    const normal = hit.face.normal.clone();
-    const p = hit.object.position.clone().add(normal);
-    addBlock(Math.round(p.x), Math.round(p.y), Math.round(p.z), "dirt");
-  }
-
-  statusLabel.textContent = `Blocks: ${blocks.length} | ${controls.isLocked ? "Playing" : "Click to play"}`;
-});
-
-document.addEventListener("contextmenu", (e) => e.preventDefault());
-
-document.addEventListener("keydown", (event) => {
-  switch (event.code) {
-    case "KeyW":
-      move.forward = true;
-      break;
-    case "KeyS":
-      move.backward = true;
-      break;
-    case "KeyA":
-      move.left = true;
-      break;
-    case "KeyD":
-      move.right = true;
-      break;
-    case "Space":
-      if (canJump) {
-        velocity.y = 7.5;
-        canJump = false;
-      }
-      break;
-  }
-});
-
-document.addEventListener("keyup", (event) => {
-  switch (event.code) {
-    case "KeyW":
-      move.forward = false;
-      break;
-    case "KeyS":
-      move.backward = false;
-      break;
-    case "KeyA":
-      move.left = false;
-      break;
-    case "KeyD":
-      move.right = false;
-      break;
-  }
-});
-
+const center = new THREE.Vector2(0, 0);
 const footRay = new THREE.Raycaster();
 const down = new THREE.Vector3(0, -1, 0);
 const clock = new THREE.Clock();
+
+function intersectBlock() {
+  raycaster.setFromCamera(center, camera);
+  return raycaster.intersectObjects(blocks, false)[0];
+}
+
+function selectedType() {
+  return hotbar[selectedSlot];
+}
+
+function inventoryString() {
+  return hotbar.map((type, idx) => `${idx + 1}:${type} ${inventory[type]}`).join(" | ");
+}
+
+function updateStatus(extra = "") {
+  const selected = selectedType();
+  const mineInfo = isMining ? ` | Mining ${miningBlock?.userData.type ?? ""} ${(mineProgress * 100).toFixed(0)}%` : "";
+  const suffix = extra ? ` | ${extra}` : " | Ready";
+  statusLabel.textContent = `Blocks: ${blocks.length}${suffix}${mineInfo} | Selected: ${selected} (${inventory[selected]}) | Inventory: ${inventoryString()}`;
+}
+
+function placeSelectedBlock() {
+  const hit = intersectBlock();
+  if (!hit) return;
+  const type = selectedType();
+  if (inventory[type] <= 0) {
+    updateStatus(`No ${type} to place`);
+    return;
+  }
+  const p = hit.object.position.clone().add(hit.face.normal);
+  addBlock(Math.round(p.x), Math.round(p.y), Math.round(p.z), type);
+  inventory[type] -= 1;
+}
+
+function startMining() {
+  const hit = intersectBlock();
+  if (!hit || hit.object.position.y <= 0) return;
+  isMining = true;
+  mineProgress = 0;
+  miningBlock = hit.object;
+}
+
+function stopMining() {
+  isMining = false;
+  mineProgress = 0;
+  miningBlock = null;
+}
+
+function onKeyChange(event, value) {
+  const code = event.code || "";
+  const key = (event.key || "").toLowerCase();
+
+  if (code === "KeyW" || key === "w") move.forward = value;
+  if (code === "KeyS" || key === "s") move.backward = value;
+  if (code === "KeyA" || key === "a") move.left = value;
+  if (code === "KeyD" || key === "d") move.right = value;
+
+  if (value && (code === "Space" || key === " ") && canJump) {
+    velocity.y = 7.5;
+    canJump = false;
+  }
+
+  if (value && /^Digit[1-5]$/.test(code)) selectedSlot = Number(code.slice(-1)) - 1;
+  if (value && /^[1-5]$/.test(key)) selectedSlot = Number(key) - 1;
+}
+
+document.addEventListener("keydown", (event) => {
+  onKeyChange(event, true);
+  updateStatus();
+});
+
+document.addEventListener("keyup", (event) => onKeyChange(event, false));
+
+document.addEventListener("contextmenu", (event) => event.preventDefault());
+
+canvas.addEventListener("mousedown", (event) => {
+  if (event.button === 0) {
+    looking = true;
+    startMining();
+  }
+  if (event.button === 2) placeSelectedBlock();
+  updateStatus();
+});
+
+document.addEventListener("mouseup", (event) => {
+  if (event.button === 0) {
+    looking = false;
+    stopMining();
+  }
+});
+
+document.addEventListener("mousemove", (event) => {
+  if (!looking) return;
+  yaw -= event.movementX * 0.003;
+  pitch -= event.movementY * 0.002;
+  pitch = Math.max(-1.05, Math.min(0.45, pitch));
+});
+
+canvas.addEventListener("touchstart", () => {}, { passive: true });
+
+touchControls.addEventListener("touchstart", (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) return;
+  event.preventDefault();
+  const dir = btn.dataset.move;
+  const action = btn.dataset.action;
+
+  if (dir) move[dir] = true;
+  if (action === "jump" && canJump) {
+    velocity.y = 7.5;
+    canJump = false;
+  }
+  if (action === "mine") startMining();
+  if (action === "place") placeSelectedBlock();
+  if (action === "next") selectedSlot = (selectedSlot + 1) % hotbar.length;
+  updateStatus();
+});
+
+touchControls.addEventListener("touchend", (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) return;
+  event.preventDefault();
+  const dir = btn.dataset.move;
+  const action = btn.dataset.action;
+  if (dir) move[dir] = false;
+  if (action === "mine") stopMining();
+});
 
 function updateMovement(dt) {
   const speed = 10;
@@ -187,26 +261,30 @@ function updateMovement(dt) {
   velocity.z -= velocity.z * 10 * dt;
   velocity.y -= 20 * dt;
 
-  const direction = new THREE.Vector3();
-  if (move.forward) direction.z -= 1;
-  if (move.backward) direction.z += 1;
-  if (move.left) direction.x -= 1;
-  if (move.right) direction.x += 1;
-  direction.normalize();
+  const localDir = new THREE.Vector3();
+  if (move.forward) localDir.z -= 1;
+  if (move.backward) localDir.z += 1;
+  if (move.left) localDir.x -= 1;
+  if (move.right) localDir.x += 1;
+  localDir.normalize();
 
-  if (move.forward || move.backward) velocity.z += direction.z * speed * dt * 10;
-  if (move.left || move.right) velocity.x += direction.x * speed * dt * 10;
+  const sin = Math.sin(yaw);
+  const cos = Math.cos(yaw);
+  const worldX = localDir.x * cos - localDir.z * sin;
+  const worldZ = localDir.x * sin + localDir.z * cos;
 
-  controls.moveRight(velocity.x * dt);
-  controls.moveForward(velocity.z * dt);
+  if (localDir.lengthSq() > 0) {
+    velocity.x += worldX * speed * dt * 10;
+    velocity.z += worldZ * speed * dt * 10;
+  }
 
-  const player = controls.getObject();
+  player.position.x += velocity.x * dt;
+  player.position.z += velocity.z * dt;
   player.position.y += velocity.y * dt;
 
   footRay.set(player.position, down);
   footRay.far = 2.2;
   const hits = footRay.intersectObjects(blocks, false);
-
   if (hits.length > 0) {
     const targetY = hits[0].object.position.y + 1.9;
     if (player.position.y < targetY + 0.05) {
@@ -222,12 +300,48 @@ function updateMovement(dt) {
   }
 }
 
+function updateCamera() {
+  const distance = 7;
+  const height = 3;
+  const target = player.position.clone().add(new THREE.Vector3(0, 1.8, 0));
+
+  const offset = new THREE.Vector3(
+    Math.sin(yaw) * Math.cos(pitch) * distance,
+    Math.sin(-pitch) * distance + height,
+    Math.cos(yaw) * Math.cos(pitch) * distance
+  );
+
+  camera.position.copy(target.clone().add(offset));
+  camera.lookAt(target);
+}
+
+function updateMining(dt) {
+  if (!isMining || !miningBlock) return;
+  const hit = intersectBlock();
+  if (!hit || hit.object !== miningBlock) {
+    stopMining();
+    return;
+  }
+  const type = miningBlock.userData.type;
+  mineProgress += dt / (mineDurations[type] ?? 0.6);
+  if (mineProgress >= 1) {
+    inventory[type] = (inventory[type] ?? 0) + 1;
+    removeBlock(miningBlock);
+    stopMining();
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (controls.isLocked) updateMovement(dt);
+  updateMovement(dt);
+  updateCamera();
+  updateMining(dt);
+  updateStatus();
   renderer.render(scene, camera);
 }
+
+updateStatus("Terrain generated");
 animate();
 
 window.addEventListener("resize", () => {
