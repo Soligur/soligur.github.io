@@ -1,21 +1,32 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Page Title</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoxelCraft</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.162.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.162.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="hud">
+      <h1>VoxelCraft (Minecraft-inspired demo)</h1>
+      <p>
+        Click to lock cursor • <strong>WASD</strong> move • <strong>Space</strong> jump •
+        <strong>Mouse</strong> look • <strong>Left click</strong> break •
+        <strong>Right click</strong> place block
+      </p>
+      <p id="status">Loading world...</p>
+    </div>
+    <div id="crosshair" aria-hidden="true">+</div>
+    <canvas id="game"></canvas>
 
-    HI<br><!-- Your content goes here -->
-    
-    <script src="scripts.js"></script>
-</body>
+    <script type="module" src="voxelcraft.js"></script>
+  </body>
 </html>
-<br>
-<a href="https://soligur.github.io/Assassin.html">try out this tough "choose your own adventure"</a>
-
-<br>
-Thanks!
