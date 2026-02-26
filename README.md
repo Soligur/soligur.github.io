@@ -15,7 +15,7 @@ Then open <http://localhost:4173>.
 ## Controls
 
 - Click to lock cursor
-- `WASD` move
+- `S` move forward, `W` move backward, `A`/`D` strafe
 - `Space` jump
 - Left click breaks a block
 - Right click places a block

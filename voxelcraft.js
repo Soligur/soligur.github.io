@@ -14,7 +14,7 @@ scene.background = new THREE.Color(0x7bb4f4);
 scene.fog = new THREE.Fog(0x7bb4f4, 20, 90);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.position.set(0, 8, 12);
+camera.position.set(0, 2.8, 6.2);
 
 const controls = new PointerLockControls(camera, document.body);
 scene.add(controls.getObject());
@@ -210,10 +210,10 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 document.addEventListener("keydown", (event) => {
   switch (event.code) {
     case "KeyW":
-      move.forward = true;
+      move.backward = true;
       break;
     case "KeyS":
-      move.backward = true;
+      move.forward = true;
       break;
     case "KeyA":
       move.left = true;
@@ -241,10 +241,10 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("keyup", (event) => {
   switch (event.code) {
     case "KeyW":
-      move.forward = false;
+      move.backward = false;
       break;
     case "KeyS":
-      move.backward = false;
+      move.forward = false;
       break;
     case "KeyA":
       move.left = false;
